@@ -1,7 +1,3 @@
-# KsfSwap Subgraph
-
-# This repository is archived, you can find all the PancakeSwawp subgraph at [KsfSwap/KsfSwap-subgraph](https://github.com/KsfSwap/KsfSwap-subgraph)
-
 [KsfSwap](https://KsfSwap.com/) is a decentralized protocol for automated token exchange on Kucoin Community Chain.
 
 This subgraph dynamically tracks any pair created by the KsfSwap factory. It tracks of the current state of KsfSwap contracts, and contains derived stats for things like historical data and USD prices.
