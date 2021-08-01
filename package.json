@@ -1,0 +1,27 @@
+{
+  "name": "ksfsubgraph",
+  "version": "1.0.0",
+  "repository": "git@github.com:KsfSwap/ksfswap-subgraph.git",
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "codegen": "graph codegen --output-dir src/types/",
+    "build": "graph build",
+    "create-remote": "graph create rs-finance/ksfsubgraph --node https://thegraph.ksfswap.info:8020",
+    "deploy-remote": "graph deploy rs-finance/ksfsubgraph --debug --ipfs https://thegraph.ksfswap.info:5001 --node https://thegraph.ksfswap.info:8020",
+    "create-local": "graph create rs-finance/ksfsubgraph --node https://thegraph.ksfswap.info:8020",
+    "deploy-local": "graph deploy rs-finance/ksfsubgraph --debug --ipfs http://thegraph.ksfswap.info:5001 --node http://thegraph.ksfswap.info:8020",
+    "deploy": "graph deploy rs-finance/ksfsubgraph --ipfs http://thegraph.ksfswap.info:5001 --node http://thegraph.ksfswap.info:8000 --debug",
+    "deploy-staging": "graph deploy rs-finance /ksfsubgraph --ipfs https://api.staging.thegraph.com/ipfs/ --node https://api.staging.thegraph.com/deploy/",
+    "watch-local": "graph deploy graphprotocol/ksfsubgraph --watch --debug --node https://thegraph.ksfswap.info:8020/ --ipfs https://thegraph.ksfswap.info:5001"
+  },
+  "devDependencies": {
+    "@graphprotocol/graph-cli": "^0.19.0",
+    "@graphprotocol/graph-ts": "^0.19.0",
+    "@typescript-eslint/eslint-plugin": "^4.13.0",
+    "@typescript-eslint/parser": "^4.13.0",
+    "eslint": "^7.17.0",
+    "eslint-config-prettier": "^7.1.0",
+    "prettier": "^2.2.1",
+    "typescript": "^4.1.3"
+  }
+}
