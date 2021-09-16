@@ -1,34 +1,34 @@
-/* eslint-disable prefer-const */
 import { PairHourData } from './../types/schema'
-import { BigInt, BigDecimal, ethereum } from '@graphprotocol/graph-ts'
-import { Pair, Bundle, Token, UniswapFactory, UniswapDayData, PairDayData, TokenDayData } from '../types/schema'
+/* eslint-disable prefer-const */
+import { BigInt, BigDecimal, EthereumEvent } from '@graphprotocol/graph-ts'
+import { Pair, Bundle, Token, KsfSwapFactory, KsfSwapDayData, PairDayData, TokenDayData } from '../types/schema'
 import { ONE_BI, ZERO_BD, ZERO_BI, FACTORY_ADDRESS } from './helpers'
 
-export function updateUniswapDayData(event: ethereum.Event): UniswapDayData {
-  let uniswap = UniswapFactory.load(FACTORY_ADDRESS)
+export function updateksfSwapDayData(event: EthereumEvent): KsfSwapDayData {
+  let ksfSwap = KsfSwapFactory.load(FACTORY_ADDRESS)
   let timestamp = event.block.timestamp.toI32()
   let dayID = timestamp / 86400
   let dayStartTimestamp = dayID * 86400
-  let uniswapDayData = UniswapDayData.load(dayID.toString())
-  if (uniswapDayData === null) {
-    uniswapDayData = new UniswapDayData(dayID.toString())
-    uniswapDayData.date = dayStartTimestamp
-    uniswapDayData.busdlyVolumeUSD = ZERO_BD
-    uniswapDayData.busdlyVolumeETH = ZERO_BD
-    uniswapDayData.totalVolumeUSD = ZERO_BD
-    uniswapDayData.totalVolumeETH = ZERO_BD
-    uniswapDayData.busdlyVolumeUntracked = ZERO_BD
+  let ksfSwapDayData = KsfSwapDayData.load(dayID.toString())
+  if (ksfSwapDayData === null) {
+    ksfSwapDayData = new KsfSwapDayData(dayID.toString())
+    ksfSwapDayData.date = dayStartTimestamp
+    ksfSwapDayData.dailyVolumeUSD = ZERO_BD
+    ksfSwapDayData.dailyVolumeKCS = ZERO_BD
+    ksfSwapDayData.totalVolumeUSD = ZERO_BD
+    ksfSwapDayData.totalVolumeKCS = ZERO_BD
+    ksfSwapDayData.dailyVolumeUntracked = ZERO_BD
   }
 
-  uniswapDayData.totalLiquidityUSD = uniswap.totalLiquidityUSD
-  uniswapDayData.totalLiquidityETH = uniswap.totalLiquidityETH
-  uniswapDayData.txCount = uniswap.txCount
-  uniswapDayData.save()
+  ksfSwapDayData.totalLiquidityUSD = ksfSwap.totalLiquidityUSD
+  ksfSwapDayData.totalLiquidityKCS = ksfSwap.totalLiquidityKCS
+  ksfSwapDayData.txCount = ksfSwap.txCount
+  ksfSwapDayData.save()
 
-  return uniswapDayData as UniswapDayData
+  return ksfSwapDayData as KsfSwapDayData
 }
 
-export function updatePairDayData(event: ethereum.Event): PairDayData {
+export function updatePairDayData(event: EthereumEvent): PairDayData {
   let timestamp = event.block.timestamp.toI32()
   let dayID = timestamp / 86400
   let dayStartTimestamp = dayID * 86400
@@ -44,23 +44,23 @@ export function updatePairDayData(event: ethereum.Event): PairDayData {
     pairDayData.token0 = pair.token0
     pairDayData.token1 = pair.token1
     pairDayData.pairAddress = event.address
-    pairDayData.busdlyVolumeToken0 = ZERO_BD
-    pairDayData.busdlyVolumeToken1 = ZERO_BD
-    pairDayData.busdlyVolumeUSD = ZERO_BD
-    pairDayData.busdlyTxns = ZERO_BI
+    pairDayData.dailyVolumeToken0 = ZERO_BD
+    pairDayData.dailyVolumeToken1 = ZERO_BD
+    pairDayData.dailyVolumeUSD = ZERO_BD
+    pairDayData.dailyTxns = ZERO_BI
   }
 
   pairDayData.totalSupply = pair.totalSupply
   pairDayData.reserve0 = pair.reserve0
   pairDayData.reserve1 = pair.reserve1
   pairDayData.reserveUSD = pair.reserveUSD
-  pairDayData.busdlyTxns = pairDayData.busdlyTxns.plus(ONE_BI)
+  pairDayData.dailyTxns = pairDayData.dailyTxns.plus(ONE_BI)
   pairDayData.save()
 
   return pairDayData as PairDayData
 }
 
-export function updatePairHourData(event: ethereum.Event): PairHourData {
+export function updatePairHourData(event: EthereumEvent): PairHourData {
   let timestamp = event.block.timestamp.toI32()
   let hourIndex = timestamp / 3600 // get unique hour within unix history
   let hourStartUnix = hourIndex * 3600 // want the rounded effect
@@ -89,7 +89,7 @@ export function updatePairHourData(event: ethereum.Event): PairHourData {
   return pairHourData as PairHourData
 }
 
-export function updateTokenDayData(token: Token, event: ethereum.Event): TokenDayData {
+export function updateTokenDayData(token: Token, event: EthereumEvent): TokenDayData {
   let bundle = Bundle.load('1')
   let timestamp = event.block.timestamp.toI32()
   let dayID = timestamp / 86400
@@ -104,18 +104,18 @@ export function updateTokenDayData(token: Token, event: ethereum.Event): TokenDa
     tokenDayData = new TokenDayData(tokenDayID)
     tokenDayData.date = dayStartTimestamp
     tokenDayData.token = token.id
-    tokenDayData.priceUSD = token.derivedETH.times(bundle.ethPrice)
-    tokenDayData.busdlyVolumeToken = ZERO_BD
-    tokenDayData.busdlyVolumeETH = ZERO_BD
-    tokenDayData.busdlyVolumeUSD = ZERO_BD
-    tokenDayData.busdlyTxns = ZERO_BI
+    tokenDayData.priceUSD = token.derivedKCS.times(bundle.kcsPrice)
+    tokenDayData.dailyVolumeToken = ZERO_BD
+    tokenDayData.dailyVolumeKCS = ZERO_BD
+    tokenDayData.dailyVolumeUSD = ZERO_BD
+    tokenDayData.dailyTxns = ZERO_BI
     tokenDayData.totalLiquidityUSD = ZERO_BD
   }
-  tokenDayData.priceUSD = token.derivedETH.times(bundle.ethPrice)
+  tokenDayData.priceUSD = token.derivedKCS.times(bundle.kcsPrice)
   tokenDayData.totalLiquidityToken = token.totalLiquidity
-  tokenDayData.totalLiquidityETH = token.totalLiquidity.times(token.derivedETH as BigDecimal)
-  tokenDayData.totalLiquidityUSD = tokenDayData.totalLiquidityETH.times(bundle.ethPrice)
-  tokenDayData.busdlyTxns = tokenDayData.busdlyTxns.plus(ONE_BI)
+  tokenDayData.totalLiquidityKCS = token.totalLiquidity.times(token.derivedKCS as BigDecimal)
+  tokenDayData.totalLiquidityUSD = tokenDayData.totalLiquidityKCS.times(bundle.kcsPrice)
+  tokenDayData.dailyTxns = tokenDayData.dailyTxns.plus(ONE_BI)
   tokenDayData.save()
 
   /**

@@ -1,4 +1,4 @@
-type UniswapFactory @entity {
+type KsfSwapFactory @entity {
   # factory address
   id: ID!
 
@@ -7,14 +7,14 @@ type UniswapFactory @entity {
 
   # total volume
   totalVolumeUSD: BigDecimal!
-  totalVolumeETH: BigDecimal!
+  totalVolumeKCS: BigDecimal!
 
   # untracked values - less confident USD scores
   untrackedVolumeUSD: BigDecimal!
 
   # total liquidity
   totalLiquidityUSD: BigDecimal!
-  totalLiquidityETH: BigDecimal!
+  totalLiquidityKCS: BigDecimal!
 
   # transactions
   txCount: BigInt!
@@ -44,7 +44,7 @@ type Token @entity {
   totalLiquidity: BigDecimal!
 
   # derived prices
-  derivedETH: BigDecimal
+  derivedKCS: BigDecimal
 
   # derived fields
   tokenDayData: [TokenDayData!]! @derivedFrom(field: "token")
@@ -66,9 +66,9 @@ type Pair @entity {
   totalSupply: BigDecimal!
 
   # derived liquidity
-  reserveETH: BigDecimal!
+  reserveKCS: BigDecimal!
   reserveUSD: BigDecimal!
-  trackedReserveETH: BigDecimal! # used for separating per pair reserves and global
+  trackedReserveKCS: BigDecimal! # used for separating per pair reserves and global
   # Price in terms of the asset pair
   token0Price: BigDecimal!
   token1Price: BigDecimal!
@@ -78,17 +78,54 @@ type Pair @entity {
   volumeToken1: BigDecimal!
   volumeUSD: BigDecimal!
   untrackedVolumeUSD: BigDecimal!
+  swapTxCount: BigInt!
+  mintTxCount: BigInt!
+  burnTxCount: BigInt!
   txCount: BigInt!
 
   # creation stats
   createdAtTimestamp: BigInt!
   createdAtBlockNumber: BigInt!
 
+  # Fields used to help derived relationship
+  liquidityProviderCount: BigInt! # used to detect new exchanges
   # derived fields
   pairHourData: [PairHourData!]! @derivedFrom(field: "pair")
+  liquidityPositions: [LiquidityPosition!]! @derivedFrom(field: "pair")
+  liquidityPositionSnapshots: [LiquidityPositionSnapshot!]! @derivedFrom(field: "pair")
   mints: [Mint!]! @derivedFrom(field: "pair")
   burns: [Burn!]! @derivedFrom(field: "pair")
   swaps: [Swap!]! @derivedFrom(field: "pair")
+}
+
+type User @entity {
+  id: ID!
+  liquidityPositions: [LiquidityPosition!] @derivedFrom(field: "user")
+  usdSwapped: BigDecimal!
+}
+
+type LiquidityPosition @entity {
+  id: ID!
+  user: User!
+  pair: Pair!
+  liquidityTokenBalance: BigDecimal!
+}
+
+# saved over time for return calculations, gets created and never updated
+type LiquidityPositionSnapshot @entity {
+  id: ID!
+  liquidityPosition: LiquidityPosition!
+  timestamp: Int! # saved for fast historical lookups
+  block: Int! # saved for fast historical lookups
+  user: User! # reference to user
+  pair: Pair! # reference to pair
+  token0PriceUSD: BigDecimal! # snapshot of token0 price
+  token1PriceUSD: BigDecimal! # snapshot of token1 price
+  reserve0: BigDecimal! # snapshot of pair token0 reserves
+  reserve1: BigDecimal! # snapshot of pair token1 reserves
+  reserveUSD: BigDecimal! # snapshot of pair reserves in USD
+  liquidityTokenTotalSupply: BigDecimal! # snapshot of pool token supply
+  liquidityTokenBalance: BigDecimal! # snapshot of users pool token balance
 }
 
 type Transaction @entity {
@@ -145,7 +182,7 @@ type Burn @entity {
   # derived amount based on available prices of tokens
   amountUSD: BigDecimal
 
-  # mark uncomplete in ETH case
+  # mark uncomplete in KCS case
   needsComplete: Boolean!
 
   # optional fee fields, if a Transfer event is fired in _mintFee
@@ -177,20 +214,20 @@ type Swap @entity {
 # stores for USD calculations
 type Bundle @entity {
   id: ID!
-  ethPrice: BigDecimal! # price of ETH usd
+  kcsPrice: BigDecimal! # price of KCS usd
 }
 
-# Data accumulated and condensed into day stats for all of Uniswap
-type UniswapDayData @entity {
+# Data accumulated and condensed into day stats for all of KsfSwap
+type KsfSwapDayData @entity {
   id: ID! # timestamp rounded to current day by dividing by 86400
   date: Int!
 
-  busdlyVolumeETH: BigDecimal!
-  busdlyVolumeUSD: BigDecimal!
-  busdlyVolumeUntracked: BigDecimal!
+  dailyVolumeKCS: BigDecimal!
+  dailyVolumeUSD: BigDecimal!
+  dailyVolumeUntracked: BigDecimal!
 
-  totalVolumeETH: BigDecimal!
-  totalLiquidityETH: BigDecimal!
+  totalVolumeKCS: BigDecimal!
+  totalLiquidityKCS: BigDecimal!
   totalVolumeUSD: BigDecimal! # Accumulate at each trade, not just calculated off whatever totalVolume is. making it more accurate as it is a live conversion
   totalLiquidityUSD: BigDecimal!
 
@@ -235,10 +272,10 @@ type PairDayData @entity {
   reserveUSD: BigDecimal!
 
   # volume stats
-  busdlyVolumeToken0: BigDecimal!
-  busdlyVolumeToken1: BigDecimal!
-  busdlyVolumeUSD: BigDecimal!
-  busdlyTxns: BigInt!
+  dailyVolumeToken0: BigDecimal!
+  dailyVolumeToken1: BigDecimal!
+  dailyVolumeUSD: BigDecimal!
+  dailyTxns: BigInt!
 }
 
 type TokenDayData @entity {
@@ -247,14 +284,14 @@ type TokenDayData @entity {
   token: Token!
 
   # volume stats
-  busdlyVolumeToken: BigDecimal!
-  busdlyVolumeETH: BigDecimal!
-  busdlyVolumeUSD: BigDecimal!
-  busdlyTxns: BigInt!
+  dailyVolumeToken: BigDecimal!
+  dailyVolumeKCS: BigDecimal!
+  dailyVolumeUSD: BigDecimal!
+  dailyTxns: BigInt!
 
   # liquidity stats
   totalLiquidityToken: BigDecimal!
-  totalLiquidityETH: BigDecimal!
+  totalLiquidityKCS: BigDecimal!
   totalLiquidityUSD: BigDecimal!
 
   # price stats

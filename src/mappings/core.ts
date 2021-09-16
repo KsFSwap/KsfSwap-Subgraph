@@ -1,26 +1,31 @@
 /* eslint-disable prefer-const */
-import { BigInt, BigDecimal, store } from '@graphprotocol/graph-ts'
+import { BigInt, BigDecimal, store, Address } from '@graphprotocol/graph-ts'
 import {
   Pair,
   Token,
-  UniswapFactory,
+  KsfSwapFactory,
   Transaction,
   Mint as MintEvent,
   Burn as BurnEvent,
   Swap as SwapEvent,
   Bundle
 } from '../types/schema'
-import { Mint, Burn, Swap, Transfer, Sync } from '../types/templates/Pair/Pair'
-import { updatePairDayData, updateTokenDayData, updateUniswapDayData, updatePairHourData } from './dayUpdates'
-import { getEthPriceInUSD, findEthPerToken, getTrackedVolumeUSD, getTrackedLiquidityUSD } from './pricing'
+import { Pair as PairContract, Mint, Burn, Swap, Transfer, Sync } from '../types/templates/Pair/Pair'
+import { updatePairDayData, updateTokenDayData, updateksfSwapDayData, updatePairHourData } from './dayUpdates'
+import { getKcsPriceInUSD, findKcsPerToken, getTrackedVolumeUSD, getTrackedLiquidityUSD } from './pricing'
 import {
   convertTokenToDecimal,
   ADDRESS_ZERO,
   FACTORY_ADDRESS,
   ONE_BI,
+  createUser,
+  createLiquidityPosition,
   ZERO_BD,
-  BI_18
+  BI_18,
+  createLiquiditySnapshot
 } from './helpers'
+import { log } from '@graphprotocol/graph-ts'
+
 
 function isCompleteMint(mintId: string): boolean {
   return MintEvent.load(mintId).sender !== null // sufficient checks
@@ -32,16 +37,20 @@ export function handleTransfer(event: Transfer): void {
     return
   }
 
-  let factory = UniswapFactory.load(FACTORY_ADDRESS)
+  let factory = KsfSwapFactory.load(FACTORY_ADDRESS)
   let transactionHash = event.transaction.hash.toHexString()
 
+  // user stats
   let from = event.params.from
+  createUser(from)
   let to = event.params.to
+  createUser(to)
 
   // get pair and load contract
   let pair = Pair.load(event.address.toHexString())
+  let pairContract = PairContract.bind(event.address)
 
-  // liquidity token amount being transferred
+  // liquidity token amount being transfered
   let value = convertTokenToDecimal(event.params.value, BI_18)
 
   // get or create transaction
@@ -87,7 +96,7 @@ export function handleTransfer(event: Transfer): void {
     }
   }
 
-  // case where direct send first on ETH withdrawls
+  // case where direct send first on KCS withdrawls
   if (event.params.to.toHexString() == pair.id) {
     let burns = transaction.burns
     let burn = new BurnEvent(
@@ -186,6 +195,20 @@ export function handleTransfer(event: Transfer): void {
     transaction.save()
   }
 
+  if (from.toHexString() != ADDRESS_ZERO && from.toHexString() != pair.id) {
+    let fromUserLiquidityPosition = createLiquidityPosition(event.address, from)
+    fromUserLiquidityPosition.liquidityTokenBalance = convertTokenToDecimal(pairContract.balanceOf(from), BI_18)
+    fromUserLiquidityPosition.save()
+    createLiquiditySnapshot(fromUserLiquidityPosition, event)
+  }
+
+  if (event.params.to.toHexString() != ADDRESS_ZERO && to.toHexString() != pair.id) {
+    let toUserLiquidityPosition = createLiquidityPosition(event.address, to)
+    toUserLiquidityPosition.liquidityTokenBalance = convertTokenToDecimal(pairContract.balanceOf(to), BI_18)
+    toUserLiquidityPosition.save()
+    createLiquiditySnapshot(toUserLiquidityPosition, event)
+  }
+
   transaction.save()
 }
 
@@ -193,10 +216,10 @@ export function handleSync(event: Sync): void {
   let pair = Pair.load(event.address.toHex())
   let token0 = Token.load(pair.token0)
   let token1 = Token.load(pair.token1)
-  let uniswap = UniswapFactory.load(FACTORY_ADDRESS)
+  let ksfSwap = KsfSwapFactory.load(FACTORY_ADDRESS)
 
   // reset factory liquidity by subtracting onluy tarcked liquidity
-  uniswap.totalLiquidityETH = uniswap.totalLiquidityETH.minus(pair.trackedReserveETH as BigDecimal)
+  ksfSwap.totalLiquidityKCS = ksfSwap.totalLiquidityKCS.minus(pair.trackedReserveKCS as BigDecimal)
 
   // reset token total liquidity amounts
   token0.totalLiquidity = token0.totalLiquidity.minus(pair.reserve0)
@@ -212,36 +235,37 @@ export function handleSync(event: Sync): void {
 
   pair.save()
 
-  // update ETH price now that reserves could have changed
+  // update KCS price now that reserves could have changed
   let bundle = Bundle.load('1')
-  bundle.ethPrice = getEthPriceInUSD()
+  bundle.kcsPrice = getKcsPriceInUSD()
   bundle.save()
 
-  token0.derivedETH = findEthPerToken(token0 as Token)
-  token1.derivedETH = findEthPerToken(token1 as Token)
+  token0.derivedKCS = findKcsPerToken(token0 as Token)
+  token1.derivedKCS = findKcsPerToken(token1 as Token)
+
   token0.save()
   token1.save()
 
   // get tracked liquidity - will be 0 if neither is in whitelist
-  let trackedLiquidityETH: BigDecimal
-  if (bundle.ethPrice.notEqual(ZERO_BD)) {
-    trackedLiquidityETH = getTrackedLiquidityUSD(bundle as Bundle, pair.reserve0, token0 as Token, pair.reserve1, token1 as Token).div(
-      bundle.ethPrice
+  let trackedLiquidityKCS: BigDecimal
+  if (bundle.kcsPrice.notEqual(ZERO_BD)) {
+    trackedLiquidityKCS = getTrackedLiquidityUSD(pair.reserve0, token0 as Token, pair.reserve1, token1 as Token).div(
+      bundle.kcsPrice
     )
   } else {
-    trackedLiquidityETH = ZERO_BD
+    trackedLiquidityKCS = ZERO_BD
   }
 
   // use derived amounts within pair
-  pair.trackedReserveETH = trackedLiquidityETH
-  pair.reserveETH = pair.reserve0
-    .times(token0.derivedETH as BigDecimal)
-    .plus(pair.reserve1.times(token1.derivedETH as BigDecimal))
-  pair.reserveUSD = pair.reserveETH.times(bundle.ethPrice)
+  pair.trackedReserveKCS = trackedLiquidityKCS
+  pair.reserveKCS = pair.reserve0
+    .times(token0.derivedKCS as BigDecimal)
+    .plus(pair.reserve1.times(token1.derivedKCS as BigDecimal))
+  pair.reserveUSD = pair.reserveKCS.times(bundle.kcsPrice)
 
   // use tracked amounts globally
-  uniswap.totalLiquidityETH = uniswap.totalLiquidityETH.plus(trackedLiquidityETH)
-  uniswap.totalLiquidityUSD = uniswap.totalLiquidityETH.times(bundle.ethPrice)
+  ksfSwap.totalLiquidityKCS = ksfSwap.totalLiquidityKCS.plus(trackedLiquidityKCS)
+  ksfSwap.totalLiquidityUSD = ksfSwap.totalLiquidityKCS.times(bundle.kcsPrice)
 
   // now correctly set liquidity amounts for each token
   token0.totalLiquidity = token0.totalLiquidity.plus(pair.reserve0)
@@ -249,7 +273,7 @@ export function handleSync(event: Sync): void {
 
   // save entities
   pair.save()
-  uniswap.save()
+  ksfSwap.save()
   token0.save()
   token1.save()
 }
@@ -260,7 +284,7 @@ export function handleMint(event: Mint): void {
   let mint = MintEvent.load(mints[mints.length - 1])
 
   let pair = Pair.load(event.address.toHex())
-  let uniswap = UniswapFactory.load(FACTORY_ADDRESS)
+  let ksfSwap = KsfSwapFactory.load(FACTORY_ADDRESS)
 
   let token0 = Token.load(pair.token0)
   let token1 = Token.load(pair.token1)
@@ -273,22 +297,23 @@ export function handleMint(event: Mint): void {
   token0.txCount = token0.txCount.plus(ONE_BI)
   token1.txCount = token1.txCount.plus(ONE_BI)
 
-  // get new amounts of USD and ETH for tracking
+  // get new amounts of USD and KCS for tracking
   let bundle = Bundle.load('1')
-  let amountTotalUSD = token1.derivedETH
+  let amountTotalUSD = token1.derivedKCS
     .times(token1Amount)
-    .plus(token0.derivedETH.times(token0Amount))
-    .times(bundle.ethPrice)
+    .plus(token0.derivedKCS.times(token0Amount))
+    .times(bundle.kcsPrice)
 
   // update txn counts
+  pair.mintTxCount = pair.mintTxCount.plus(ONE_BI)
   pair.txCount = pair.txCount.plus(ONE_BI)
-  uniswap.txCount = uniswap.txCount.plus(ONE_BI)
+  ksfSwap.txCount = ksfSwap.txCount.plus(ONE_BI)
 
   // save entities
   token0.save()
   token1.save()
   pair.save()
-  uniswap.save()
+  ksfSwap.save()
 
   mint.sender = event.params.sender
   mint.amount0 = token0Amount as BigDecimal
@@ -297,10 +322,14 @@ export function handleMint(event: Mint): void {
   mint.amountUSD = amountTotalUSD as BigDecimal
   mint.save()
 
+  // update the LP position
+  let liquidityPosition = createLiquidityPosition(event.address, mint.to as Address)
+  createLiquiditySnapshot(liquidityPosition, event)
+
   // update day entities
   updatePairDayData(event)
   updatePairHourData(event)
-  updateUniswapDayData(event)
+  updateksfSwapDayData(event)
   updateTokenDayData(token0 as Token, event)
   updateTokenDayData(token1 as Token, event)
 }
@@ -317,7 +346,7 @@ export function handleBurn(event: Burn): void {
   let burn = BurnEvent.load(burns[burns.length - 1])
 
   let pair = Pair.load(event.address.toHex())
-  let uniswap = UniswapFactory.load(FACTORY_ADDRESS)
+  let ksfSwap = KsfSwapFactory.load(FACTORY_ADDRESS)
 
   //update token info
   let token0 = Token.load(pair.token0)
@@ -329,22 +358,24 @@ export function handleBurn(event: Burn): void {
   token0.txCount = token0.txCount.plus(ONE_BI)
   token1.txCount = token1.txCount.plus(ONE_BI)
 
-  // get new amounts of USD and ETH for tracking
+  // get new amounts of USD and KCS for tracking
   let bundle = Bundle.load('1')
-  let amountTotalUSD = token1.derivedETH
+  let amountTotalUSD = token1.derivedKCS
     .times(token1Amount)
-    .plus(token0.derivedETH.times(token0Amount))
-    .times(bundle.ethPrice)
+    .plus(token0.derivedKCS.times(token0Amount))
+    .times(bundle.kcsPrice)
 
   // update txn counts
-  uniswap.txCount = uniswap.txCount.plus(ONE_BI)
+  pair.burnTxCount = pair.burnTxCount.plus(ONE_BI)
   pair.txCount = pair.txCount.plus(ONE_BI)
+  ksfSwap.txCount = ksfSwap.txCount.plus(ONE_BI)
+
 
   // update global counter and save
   token0.save()
   token1.save()
   pair.save()
-  uniswap.save()
+  ksfSwap.save()
 
   // update burn
   // burn.sender = event.params.sender
@@ -355,10 +386,14 @@ export function handleBurn(event: Burn): void {
   burn.amountUSD = amountTotalUSD as BigDecimal
   burn.save()
 
+  // update the LP position
+  let liquidityPosition = createLiquidityPosition(event.address, burn.sender as Address)
+  createLiquiditySnapshot(liquidityPosition, event)
+
   // update day entities
   updatePairDayData(event)
   updatePairHourData(event)
-  updateUniswapDayData(event)
+  updateksfSwapDayData(event)
   updateTokenDayData(token0 as Token, event)
   updateTokenDayData(token1 as Token, event)
 }
@@ -376,24 +411,26 @@ export function handleSwap(event: Swap): void {
   let amount0Total = amount0Out.plus(amount0In)
   let amount1Total = amount1Out.plus(amount1In)
 
-  // ETH/USD prices
+  // KCS/USD prices
   let bundle = Bundle.load('1')
+  log.info(`bundle eth price before in swap ` + bundle.kcsPrice.toString(), []);
 
-  // get total amounts of derived USD and ETH for tracking
-  let derivedAmountETH = token1.derivedETH
+  // get total amounts of derived USD and KCS for tracking
+  let derivedAmountKCS = token1.derivedKCS
     .times(amount1Total)
-    .plus(token0.derivedETH.times(amount0Total))
+    .plus(token0.derivedKCS.times(amount0Total))
     .div(BigDecimal.fromString('2'))
-  let derivedAmountUSD = derivedAmountETH.times(bundle.ethPrice)
+  let derivedAmountUSD = derivedAmountKCS.times(bundle.kcsPrice)
 
   // only accounts for volume through white listed tokens
-  let trackedAmountUSD = getTrackedVolumeUSD(amount0Total, token0 as Token, amount1Total, token1 as Token)
+  let trackedAmountUSD = getTrackedVolumeUSD(amount0Total, token0 as Token, amount1Total, token1 as Token, pair as Pair)
+  log.info(`trackedAmountUSD is in swap is ` + trackedAmountUSD.toString(), [])
 
-  let trackedAmountETH: BigDecimal
-  if (bundle.ethPrice.equals(ZERO_BD)) {
-    trackedAmountETH = ZERO_BD
+  let trackedAmountKCS: BigDecimal
+  if (bundle.kcsPrice.equals(ZERO_BD)) {
+    trackedAmountKCS = ZERO_BD
   } else {
-    trackedAmountETH = trackedAmountUSD.div(bundle.ethPrice)
+    trackedAmountKCS = trackedAmountUSD.div(bundle.kcsPrice)
   }
 
   // update token0 global volume and token liquidity stats
@@ -415,21 +452,23 @@ export function handleSwap(event: Swap): void {
   pair.volumeToken0 = pair.volumeToken0.plus(amount0Total)
   pair.volumeToken1 = pair.volumeToken1.plus(amount1Total)
   pair.untrackedVolumeUSD = pair.untrackedVolumeUSD.plus(derivedAmountUSD)
+  pair.swapTxCount = pair.swapTxCount.plus(ONE_BI)
   pair.txCount = pair.txCount.plus(ONE_BI)
   pair.save()
 
   // update global values, only used tracked amounts for volume
-  let uniswap = UniswapFactory.load(FACTORY_ADDRESS)
-  uniswap.totalVolumeUSD = uniswap.totalVolumeUSD.plus(trackedAmountUSD)
-  uniswap.totalVolumeETH = uniswap.totalVolumeETH.plus(trackedAmountETH)
-  uniswap.untrackedVolumeUSD = uniswap.untrackedVolumeUSD.plus(derivedAmountUSD)
-  uniswap.txCount = uniswap.txCount.plus(ONE_BI)
+  let ksfSwap = KsfSwapFactory.load(FACTORY_ADDRESS)
+  ksfSwap.totalVolumeUSD = ksfSwap.totalVolumeUSD.plus(trackedAmountUSD)
+  ksfSwap.totalVolumeKCS = ksfSwap.totalVolumeKCS.plus(trackedAmountKCS)
+  ksfSwap.untrackedVolumeUSD = ksfSwap.untrackedVolumeUSD.plus(derivedAmountUSD)
+  ksfSwap.txCount = ksfSwap.txCount.plus(ONE_BI)
+  log.info(`ksfSwap.totalVolumeUSD is in swap is ` + ksfSwap.totalVolumeUSD.toString(), [])
 
   // save entities
   pair.save()
   token0.save()
   token1.save()
-  uniswap.save()
+  ksfSwap.save()
 
   let transaction = Transaction.load(event.transaction.hash.toHexString())
   if (transaction === null) {
@@ -476,20 +515,20 @@ export function handleSwap(event: Swap): void {
   // update day entities
   let pairDayData = updatePairDayData(event)
   let pairHourData = updatePairHourData(event)
-  let uniswapDayData = updateUniswapDayData(event)
+  let ksfSwapDayData = updateksfSwapDayData(event)
   let token0DayData = updateTokenDayData(token0 as Token, event)
   let token1DayData = updateTokenDayData(token1 as Token, event)
 
   // swap specific updating
-  uniswapDayData.busdlyVolumeUSD = uniswapDayData.busdlyVolumeUSD.plus(trackedAmountUSD)
-  uniswapDayData.busdlyVolumeETH = uniswapDayData.busdlyVolumeETH.plus(trackedAmountETH)
-  uniswapDayData.busdlyVolumeUntracked = uniswapDayData.busdlyVolumeUntracked.plus(derivedAmountUSD)
-  uniswapDayData.save()
+  ksfSwapDayData.dailyVolumeUSD = ksfSwapDayData.dailyVolumeUSD.plus(trackedAmountUSD)
+  ksfSwapDayData.dailyVolumeKCS = ksfSwapDayData.dailyVolumeKCS.plus(trackedAmountKCS)
+  ksfSwapDayData.dailyVolumeUntracked = ksfSwapDayData.dailyVolumeUntracked.plus(derivedAmountUSD)
+  ksfSwapDayData.save()
 
   // swap specific updating for pair
-  pairDayData.busdlyVolumeToken0 = pairDayData.busdlyVolumeToken0.plus(amount0Total)
-  pairDayData.busdlyVolumeToken1 = pairDayData.busdlyVolumeToken1.plus(amount1Total)
-  pairDayData.busdlyVolumeUSD = pairDayData.busdlyVolumeUSD.plus(trackedAmountUSD)
+  pairDayData.dailyVolumeToken0 = pairDayData.dailyVolumeToken0.plus(amount0Total)
+  pairDayData.dailyVolumeToken1 = pairDayData.dailyVolumeToken1.plus(amount1Total)
+  pairDayData.dailyVolumeUSD = pairDayData.dailyVolumeUSD.plus(trackedAmountUSD)
   pairDayData.save()
 
   // update hourly pair data
@@ -499,18 +538,18 @@ export function handleSwap(event: Swap): void {
   pairHourData.save()
 
   // swap specific updating for token0
-  token0DayData.busdlyVolumeToken = token0DayData.busdlyVolumeToken.plus(amount0Total)
-  token0DayData.busdlyVolumeETH = token0DayData.busdlyVolumeETH.plus(amount0Total.times(token1.derivedETH as BigDecimal))
-  token0DayData.busdlyVolumeUSD = token0DayData.busdlyVolumeUSD.plus(
-    amount0Total.times(token0.derivedETH as BigDecimal).times(bundle.ethPrice)
+  token0DayData.dailyVolumeToken = token0DayData.dailyVolumeToken.plus(amount0Total)
+  token0DayData.dailyVolumeKCS = token0DayData.dailyVolumeKCS.plus(amount0Total.times(token1.derivedKCS as BigDecimal))
+  token0DayData.dailyVolumeUSD = token0DayData.dailyVolumeUSD.plus(
+    amount0Total.times(token0.derivedKCS as BigDecimal).times(bundle.kcsPrice)
   )
   token0DayData.save()
 
   // swap specific updating
-  token1DayData.busdlyVolumeToken = token1DayData.busdlyVolumeToken.plus(amount1Total)
-  token1DayData.busdlyVolumeETH = token1DayData.busdlyVolumeETH.plus(amount1Total.times(token1.derivedETH as BigDecimal))
-  token1DayData.busdlyVolumeUSD = token1DayData.busdlyVolumeUSD.plus(
-    amount1Total.times(token1.derivedETH as BigDecimal).times(bundle.ethPrice)
+  token1DayData.dailyVolumeToken = token1DayData.dailyVolumeToken.plus(amount1Total)
+  token1DayData.dailyVolumeKCS = token1DayData.dailyVolumeKCS.plus(amount1Total.times(token1.derivedKCS as BigDecimal))
+  token1DayData.dailyVolumeUSD = token1DayData.dailyVolumeUSD.plus(
+    amount1Total.times(token1.derivedKCS as BigDecimal).times(bundle.kcsPrice)
   )
   token1DayData.save()
 }
