@@ -1,6 +1,6 @@
 /* eslint-disable prefer-const */
 import { log } from '@graphprotocol/graph-ts'
-import { UniswapFactory, Pair, Token, Bundle } from '../types/schema'
+import { KsfSwapFactory, Pair, Token, Bundle } from '../types/schema'
 import { PairCreated } from '../types/Factory/Factory'
 import { Pair as PairTemplate } from '../types/templates'
 import {
@@ -15,12 +15,12 @@ import {
 
 export function handleNewPair(event: PairCreated): void {
   // load factory (create if first exchange)
-  let factory = UniswapFactory.load(FACTORY_ADDRESS)
+  let factory = KsfSwapFactory.load(FACTORY_ADDRESS)
   if (factory === null) {
-    factory = new UniswapFactory(FACTORY_ADDRESS)
+    factory = new KsfSwapFactory(FACTORY_ADDRESS)
     factory.pairCount = 0
-    factory.totalVolumeETH = ZERO_BD
-    factory.totalLiquidityETH = ZERO_BD
+    factory.totalVolumeKCS = ZERO_BD
+    factory.totalLiquidityKCS = ZERO_BD
     factory.totalVolumeUSD = ZERO_BD
     factory.untrackedVolumeUSD = ZERO_BD
     factory.totalLiquidityUSD = ZERO_BD
@@ -28,7 +28,7 @@ export function handleNewPair(event: PairCreated): void {
 
     // create new bundle
     let bundle = new Bundle('1')
-    bundle.ethPrice = ZERO_BD
+    bundle.kcsPrice = ZERO_BD
     bundle.save()
   }
   factory.pairCount = factory.pairCount + 1
@@ -52,7 +52,7 @@ export function handleNewPair(event: PairCreated): void {
     }
 
     token0.decimals = decimals
-    token0.derivedETH = ZERO_BD
+    token0.derivedKCS = ZERO_BD
     token0.tradeVolume = ZERO_BD
     token0.tradeVolumeUSD = ZERO_BD
     token0.untrackedVolumeUSD = ZERO_BD
@@ -74,7 +74,7 @@ export function handleNewPair(event: PairCreated): void {
       return
     }
     token1.decimals = decimals
-    token1.derivedETH = ZERO_BD
+    token1.derivedKCS = ZERO_BD
     token1.tradeVolume = ZERO_BD
     token1.tradeVolumeUSD = ZERO_BD
     token1.untrackedVolumeUSD = ZERO_BD
@@ -86,13 +86,17 @@ export function handleNewPair(event: PairCreated): void {
   let pair = new Pair(event.params.pair.toHexString()) as Pair
   pair.token0 = token0.id
   pair.token1 = token1.id
+  pair.liquidityProviderCount = ZERO_BI
   pair.createdAtTimestamp = event.block.timestamp
   pair.createdAtBlockNumber = event.block.number
+  pair.mintTxCount = ZERO_BI
+  pair.burnTxCount = ZERO_BI
+  pair.swapTxCount = ZERO_BI
   pair.txCount = ZERO_BI
   pair.reserve0 = ZERO_BD
   pair.reserve1 = ZERO_BD
-  pair.trackedReserveETH = ZERO_BD
-  pair.reserveETH = ZERO_BD
+  pair.trackedReserveKCS = ZERO_BD
+  pair.reserveKCS = ZERO_BD
   pair.reserveUSD = ZERO_BD
   pair.totalSupply = ZERO_BD
   pair.volumeToken0 = ZERO_BD
